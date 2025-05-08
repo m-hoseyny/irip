@@ -1,11 +1,16 @@
 from rest_framework import viewsets, permissions, status, generics, mixins
 from rest_framework.response import Response
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from django.contrib.auth import get_user_model
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
+from django.shortcuts import get_object_or_404
 from .serializers import (
     UserSerializer, UserCreateSerializer, 
     UserUpdateSerializer, PasswordChangeSerializer
 )
+from .tokens import email_verification_token
+from .utils import send_verification_email
 
 User = get_user_model()
 
@@ -65,3 +70,68 @@ class UserViewSet(viewsets.GenericViewSet,
     def me(self, request):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
+    
+    def perform_create(self, serializer):
+        """Override create to send verification email"""
+        user = serializer.save()
+        send_verification_email(user, self.request)
+        return user
+    
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def resend_verification(self, request, pk=None):
+        """Resend verification email"""
+        user = self.get_object()
+        
+        # Check if already verified
+        if user.is_verified:
+            return Response(
+                {"detail": "Email already verified."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Send verification email
+        send_verification_email(user, request)
+        
+        return Response(
+            {"detail": "Verification email sent."},
+            status=status.HTTP_200_OK
+        )
+    
+    # Security verification is handled by admin only
+
+
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def verify_email(request, uidb64, token):
+    """Verify email address using token"""
+    try:
+        # Decode user ID
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        user = get_object_or_404(User, pk=uid)
+        
+        # Check token validity
+        if email_verification_token.check_token(user, token):
+            # Mark email as verified
+            user.is_verified = True
+            
+            # Update KYC status to email verified
+            if user.kyc_status == User.KYC_NOT_VERIFIED:
+                user.kyc_status = User.KYC_EMAIL_VERIFIED
+            
+            user.save()
+            
+            return Response(
+                {"detail": "Email verified successfully."},
+                status=status.HTTP_200_OK
+            )
+        else:
+            return Response(
+                {"detail": "Invalid or expired verification link."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        return Response(
+            {"detail": "Invalid verification link."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
