@@ -29,7 +29,13 @@ schema_view = get_schema_view(
     openapi.Info(
         title="IRIP API",
         default_version='v1',
-        description="API for VPN account management with JWT authentication. Use the /api/v1/user/token/ endpoint to get your JWT token.",
+        description="API for VPN account management with JWT authentication.\n\n"
+                    "**Authentication:**\n"
+                    "1. First, obtain a token at `/api/v1/user/token/`\n"
+                    "2. Click the 'Authorize' button at the top right\n"
+                    "3. In the 'Value' field, enter: `Bearer your_token_here`\n"
+                    "4. Click 'Authorize' and close the dialog\n"
+                    "5. Now you can use the authenticated endpoints",
         terms_of_service="https://www.example.com/terms/",
         contact=openapi.Contact(email="contact@example.com"),
         license=openapi.License(name="BSD License"),
@@ -37,7 +43,6 @@ schema_view = get_schema_view(
     public=True,
     permission_classes=(permissions.AllowAny,),
     authentication_classes=(SessionAuthentication, JWTAuthentication),
-    security=[{'Bearer': []}],
 )
 
 urlpatterns = [

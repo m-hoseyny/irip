@@ -170,6 +170,22 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 10,
 }
 
+# Swagger settings
+SWAGGER_SETTINGS = {
+    'SECURITY_DEFINITIONS': {
+        'Bearer': {
+            'type': 'apiKey',
+            'name': 'Authorization',
+            'in': 'header',
+            'description': 'JWT Token Authentication. Example: "Authorization: Bearer {token}"'
+        }
+    },
+    'USE_SESSION_AUTH': False,
+    'VALIDATOR_URL': None,
+    'DEFAULT_MODEL_RENDERING': 'example',
+    'OPERATIONS_SORTER': 'alpha',
+}
+
 # Media files
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
