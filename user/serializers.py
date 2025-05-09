@@ -11,11 +11,46 @@ class UserSerializer(serializers.ModelSerializer):
     Serializer for the User model.
     Used for retrieving user information.
     """
+    kyc_status_display = serializers.CharField(source='get_kyc_status_display', read_only=True)
+    verification_photo_status = serializers.SerializerMethodField()
+    
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'is_verified', 'kyc_status',
-                  'phone_number', 'address', 'profile_picture', 'date_of_birth', 'social_security_number')
-        read_only_fields = ('id', 'is_verified', 'kyc_status')
+        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'is_verified', 'kyc_status', 'kyc_status_display',
+                  'phone_number', 'address', 'profile_picture', 'date_of_birth', 'social_security_number',
+                  'verification_photo_status')
+        read_only_fields = ('id', 'is_verified', 'kyc_status', 'kyc_status_display', 'verification_photo_status')
+    
+    def get_verification_photo_status(self, obj):
+        """Get the status of the user's verification photo"""
+        from file_management.models import VerificationPhoto
+        
+        # Get the latest verification photo for the user
+        latest_photo = VerificationPhoto.objects.filter(user=obj).order_by('-uploaded_at').first()
+        
+        if not latest_photo:
+            return {
+                "has_submitted": False,
+                "status": None,
+                "message": "No verification photo submitted yet."
+            }
+        
+        # Return status information
+        status_messages = {
+            VerificationPhoto.STATUS_PENDING: "Your verification photo is pending review.",
+            VerificationPhoto.STATUS_VERIFIED: "Your verification photo has been approved.",
+            VerificationPhoto.STATUS_REJECTED: "Your verification photo was rejected. Please upload a new photo."
+        }
+        
+        return {
+            "has_submitted": True,
+            "status": latest_photo.status,
+            "status_display": latest_photo.get_status_display(),
+            "message": status_messages.get(latest_photo.status),
+            "uploaded_at": latest_photo.uploaded_at,
+            "updated_at": latest_photo.updated_at,
+            "notes": latest_photo.notes if latest_photo.notes else None
+        }
 
 
 class UserCreateSerializer(serializers.ModelSerializer):

@@ -184,6 +184,18 @@ SWAGGER_SETTINGS = {
     'VALIDATOR_URL': None,
     'DEFAULT_MODEL_RENDERING': 'example',
     'OPERATIONS_SORTER': 'alpha',
+    'DEFAULT_FILE_SPEC_ENCODING': 'utf8',
+    'DEFAULT_AUTO_SCHEMA_CLASS': 'drf_yasg.inspectors.SwaggerAutoSchema',
+    'DEFAULT_FIELD_INSPECTORS': [
+        'drf_yasg.inspectors.CamelCaseJSONFilter',
+        'drf_yasg.inspectors.InlineSerializerInspector',
+        'drf_yasg.inspectors.RelatedFieldInspector',
+        'drf_yasg.inspectors.ChoiceFieldInspector',
+        'drf_yasg.inspectors.FileFieldInspector',  # Important for file uploads
+        'drf_yasg.inspectors.DictFieldInspector',
+        'drf_yasg.inspectors.SimpleFieldInspector',
+        'drf_yasg.inspectors.StringDefaultFieldInspector',
+    ],
 }
 
 # Media files
