@@ -21,6 +21,7 @@ services:
       - "traefik.http.routers.irip-app.rule=Host(`api.irip.online`)"
       - "traefik.http.routers.irip-app.entrypoints=websecure"
       - "traefik.http.routers.irip-app.tls.certresolver=myresolver"
+      - "traefik.http.services.irip-app.loadbalancer.server.port=8000"
     networks:
       - alltogether
   
