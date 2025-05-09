@@ -25,11 +25,8 @@ RUN pip install --upgrade pip \
 # Copy project
 COPY . /app/
 
-# Create logs directory
-RUN mkdir -p /app/logs && chmod 777 /app/logs
+# Make entrypoint script executable
+RUN chmod +x /app/docker-entrypoint.sh
 
-# Collect static files
-RUN python manage.py collectstatic --noinput
-
-# Run gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "irip.wsgi:application"]
+# Set entrypoint
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

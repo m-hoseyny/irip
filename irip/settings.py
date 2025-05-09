@@ -263,10 +263,6 @@ LOGGING = {
             'format': '{levelname} {message}',
             'style': '{',
         },
-        'json': {
-            'format': '%(asctime)s %(levelname)s %(name)s %(message)s',
-            'class': 'pythonjsonlogger.jsonlogger.JsonFormatter',
-        },
     },
     'filters': {
         'require_debug_true': {
@@ -284,10 +280,7 @@ LOGGING = {
         },
         'file': {
             'level': 'INFO',
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs/irip.log'),
-            'maxBytes': 1024 * 1024 * 10,  # 10 MB
-            'backupCount': 10,
+            'class': 'logging.StreamHandler',  # Changed to StreamHandler for reliability
             'formatter': 'verbose',
         },
         'mail_admins': {
