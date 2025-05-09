@@ -73,13 +73,25 @@ class UserViewSet(viewsets.GenericViewSet,
     
     def perform_create(self, serializer):
         """Override create to send verification email"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         user = serializer.save()
-        send_verification_email(user, self.request)
+        success, message = send_verification_email(user, self.request)
+        
+        if success:
+            logger.info(f"Verification email sent during user creation: {message}")
+        else:
+            logger.error(f"Failed to send verification email during user creation: {message}")
+            
         return user
     
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def resend_verification(self, request, pk=None):
         """Resend verification email"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         user = self.get_object()
         
         # Check if already verified
@@ -90,12 +102,20 @@ class UserViewSet(viewsets.GenericViewSet,
             )
         
         # Send verification email
-        send_verification_email(user, request)
+        success, message = send_verification_email(user, request)
         
-        return Response(
-            {"detail": "Verification email sent."},
-            status=status.HTTP_200_OK
-        )
+        if success:
+            logger.info(f"API resend verification successful: {message}")
+            return Response(
+                {"detail": "Verification email sent.", "message": message},
+                status=status.HTTP_200_OK
+            )
+        else:
+            logger.error(f"API resend verification failed: {message}")
+            return Response(
+                {"detail": "Failed to send verification email.", "error": message},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
     # Security verification is handled by admin only
 

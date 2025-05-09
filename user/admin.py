@@ -50,18 +50,35 @@ class UserAdmin(BaseUserAdmin):
     
     def verification_actions(self, obj):
         """Display verification action buttons"""
+        buttons = []
+        
+        # Add resend verification button for all users
+        buttons.append(
+            format_html(
+                '<a class="button" href="{}" style="background-color: #17a2b8; color: white; margin-right: 5px;">Resend Verification</a>',
+                reverse('admin:resend-verification', args=[obj.pk])
+            )
+        )
+        
+        # Add other verification buttons based on status
         if obj.kyc_status == User.KYC_SECURITY_VERIFIED:
-            return format_html('<span style="color: green;">✓ Fully Verified</span>')
+            buttons.append(format_html('<span style="color: green;">✓ Fully Verified</span>'))
         elif obj.kyc_status == User.KYC_EMAIL_VERIFIED:
-            return format_html(
-                '<a class="button" href="{}" style="background-color: #28a745; color: white;">Verify Security</a>',
-                reverse('admin:verify-security', args=[obj.pk])
+            buttons.append(
+                format_html(
+                    '<a class="button" href="{}" style="background-color: #28a745; color: white;">Verify Security</a>',
+                    reverse('admin:verify-security', args=[obj.pk])
+                )
             )
         else:
-            return format_html(
-                '<a class="button" href="{}" style="background-color: #ffc107; color: black;">Verify Email</a>',
-                reverse('admin:verify-email', args=[obj.pk])
+            buttons.append(
+                format_html(
+                    '<a class="button" href="{}" style="background-color: #ffc107; color: black;">Verify Email</a>',
+                    reverse('admin:verify-email', args=[obj.pk])
+                )
             )
+        
+        return format_html('&nbsp;'.join(buttons))
     verification_actions.short_description = _('Actions')
     
     def get_urls(self):
@@ -77,6 +94,11 @@ class UserAdmin(BaseUserAdmin):
                 '<path:object_id>/verify-security/',
                 self.admin_site.admin_view(self.verify_security_view),
                 name='verify-security',
+            ),
+            path(
+                '<path:object_id>/resend-verification/',
+                self.admin_site.admin_view(self.resend_verification_view),
+                name='resend-verification',
             ),
         ]
         return custom_urls + urls
@@ -99,6 +121,37 @@ class UserAdmin(BaseUserAdmin):
             user.kyc_status = User.KYC_SECURITY_VERIFIED
             user.save()
             self.message_user(request, f'Security verified for {user.email}', messages.SUCCESS)
+        return HttpResponseRedirect(reverse('admin:user_user_changelist'))
+    
+    def resend_verification_view(self, request, object_id):
+        """Admin view to resend verification email"""
+        from .utils import send_verification_email
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        user = self.get_object(request, object_id)
+        
+        # Log the attempt
+        logger.info(f"Admin {request.user.username} attempting to resend verification email to {user.email}")
+        
+        # Send verification email
+        success, message = send_verification_email(user)
+        
+        if success:
+            self.message_user(
+                request, 
+                f'Verification email resent to {user.email}', 
+                messages.SUCCESS
+            )
+            logger.info(f"Admin verification email resend successful: {message}")
+        else:
+            self.message_user(
+                request, 
+                f'Failed to send verification email: {message}', 
+                messages.ERROR
+            )
+            logger.error(f"Admin verification email resend failed: {message}")
+            
         return HttpResponseRedirect(reverse('admin:user_user_changelist'))
     
     def verify_email(self, request, queryset):
