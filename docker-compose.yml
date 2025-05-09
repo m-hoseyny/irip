@@ -23,6 +23,9 @@ services:
       - "traefik.http.routers.irip-app.tls.certresolver=myresolver"
     networks:
       - alltogether
+  
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 
 volumes:
