@@ -25,6 +25,9 @@ RUN pip install --upgrade pip \
 # Copy project
 COPY . /app/
 
+# Create logs directory
+RUN mkdir -p /app/logs && chmod 777 /app/logs
+
 # Collect static files
 RUN python manage.py collectstatic --noinput
 
