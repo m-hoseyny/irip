@@ -5,8 +5,6 @@ services:
     build: .
     container_name: irip_web
     restart: always
-    ports:
-      - "8000:8000"
     volumes:
       - ./:/app
       - static_volume:/app/staticfiles
