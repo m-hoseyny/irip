@@ -256,7 +256,7 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'format': '[{levelname}] ({asctime}) {message}',
             'style': '{',
         },
         'simple': {
@@ -278,11 +278,6 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.StreamHandler',  # Changed to StreamHandler for reliability
-            'formatter': 'verbose',
-        },
         'mail_admins': {
             'level': 'ERROR',
             'filters': ['require_debug_false'],
@@ -291,37 +286,37 @@ LOGGING = {
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': True,
         },
         'django.request': {
-            'handlers': ['mail_admins', 'console', 'file'],
+            'handlers': ['mail_admins', 'console'],
             'level': 'ERROR',
             'propagate': False,
         },
         'django.security': {
-            'handlers': ['mail_admins', 'console', 'file'],
+            'handlers': ['mail_admins', 'console'],
             'level': 'ERROR',
             'propagate': False,
         },
         'django.db.backends': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
         },
         'irip': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': True,
         },
         'user': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': True,
         },
         'file_management': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': True,
         },
