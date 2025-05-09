@@ -17,6 +17,12 @@ services:
       sh -c "python manage.py migrate &&
              python manage.py collectstatic --noinput &&
              gunicorn irip.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120"
+  
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.irip-app.rule=Host(`api.irip.online`)"
+      - "traefik.http.routers.irip-app.entrypoints=websecure"
+      - "traefik.http.routers.irip-app.tls.certresolver=myresolver"
 
 volumes:
   static_volume:
