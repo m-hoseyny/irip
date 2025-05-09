@@ -23,7 +23,14 @@ services:
       - "traefik.http.routers.irip-app.rule=Host(`api.irip.online`)"
       - "traefik.http.routers.irip-app.entrypoints=websecure"
       - "traefik.http.routers.irip-app.tls.certresolver=myresolver"
+    networks:
+      - alltogether
+
 
 volumes:
   static_volume:
   media_volume:
+
+networks:
+  alltogether:
+    external: true
