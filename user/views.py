@@ -17,9 +17,7 @@ User = get_user_model()
 
 class UserViewSet(viewsets.GenericViewSet, 
                mixins.CreateModelMixin,
-               mixins.RetrieveModelMixin,
-               mixins.UpdateModelMixin,
-               mixins.ListModelMixin):
+               mixins.UpdateModelMixin):
     """
     API endpoint for users.
     Supports Create, Retrieve, Update, List but NOT Delete operations.
