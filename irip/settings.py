@@ -162,6 +162,15 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Stripe Configuration
+STRIPE_PUBLIC_KEY = os.environ.get('STRIPE_PUBLIC_KEY', '')
+STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
+STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
+
+# URLs for Stripe checkout redirects
+STRIPE_SUCCESS_URL = '/subscription/success/'
+STRIPE_CANCEL_URL = '/subscription/cancel/'
+
 # Custom user model
 AUTH_USER_MODEL = 'user.User'
 

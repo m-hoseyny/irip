@@ -82,7 +82,7 @@ urlpatterns = [
     
     # API endpoints
     path('api/v1/user/', include('user.urls')),
-    # path('api/v1/subscription/', include('subscription.urls')),
+    path('api/v1/subscription/', include('subscription.urls')),
     # path('api/v1/vpn-account/', include('vpn_account.urls')),
     path('api/v1/file-management/', include('file_management.urls')),
 ]
