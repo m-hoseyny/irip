@@ -10,6 +10,7 @@ router.register(r'subscriptions', views.SubscriptionViewSet, basename='subscript
 router.register(r'products', views.StripeProductViewSet, basename='product')
 router.register(r'prices', views.StripePriceViewSet, basename='price')
 router.register(r'receipts', views.PaymentReceiptViewSet, basename='receipt')
+router.register(r'checkout', views.CheckoutVerificationViewSet, basename='checkout')
 
 # URL patterns for the subscription app - API endpoints only
 urlpatterns = [

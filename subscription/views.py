@@ -11,6 +11,8 @@ from django.db import transaction
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 import stripe
 import json
@@ -114,15 +116,157 @@ class StripePriceViewSet(viewsets.ReadOnlyModelViewSet):
             return StripePrice.objects.none()
             
         return StripePrice.objects.filter(active=True)
-
-
-
     
     @action(detail=True, methods=['post'])
     def checkout(self, request, pk=None):
         """Create a checkout session for a price"""
         # Check if this is a schema generation request
         if getattr(self, 'swagger_fake_view', False):
+            return Response({"id": "schema_generation", "url": "https://example.com/checkout"})
+            
+        price = self.get_object()
+        user = request.user
+        
+        # Check if the user is eligible for this product
+        if not is_eligible_for_product(user, price.product):
+            return Response(
+                {"error": "You are not eligible for this product. Please complete the required verification."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        try:
+            success_url = request.data.get('success_url', settings.STRIPE_SUCCESS_URL)
+            cancel_url = request.data.get('cancel_url', settings.STRIPE_CANCEL_URL)
+            
+            # Create checkout session
+            session = create_checkout_session(
+                user=user,
+                price_id=price.id,
+                success_url=success_url,
+                cancel_url=cancel_url
+            )
+            
+            return Response({"id": session.id, "url": session.url})
+            
+        except Exception as e:
+            logger.error(f"Error creating checkout session: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+class CheckoutVerificationViewSet(viewsets.ViewSet):
+    """API viewset for verifying checkout sessions"""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    # Define the session_id parameter for Swagger documentation
+    session_id_param = openapi.Parameter(
+        'session_id',
+        openapi.IN_QUERY,
+        description="Stripe Checkout Session ID to verify",
+        type=openapi.TYPE_STRING,
+        required=True
+    )
+    
+    # Define the response schema
+    response_schema = openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        properties={
+            'session_status': openapi.Schema(type=openapi.TYPE_STRING, description="Status of the checkout session (e.g., 'complete', 'open')"),
+            'payment_status': openapi.Schema(type=openapi.TYPE_STRING, description="Status of the payment (e.g., 'paid', 'unpaid')"),
+            'subscription': openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                    'status': openapi.Schema(type=openapi.TYPE_STRING),
+                    'current_period_end': openapi.Schema(type=openapi.TYPE_STRING, format='date-time'),
+                    'product_name': openapi.Schema(type=openapi.TYPE_STRING),
+                    'price_formatted': openapi.Schema(type=openapi.TYPE_STRING),
+                }
+            )
+        }
+    )
+    
+    @swagger_auto_schema(
+        method='get',
+        manual_parameters=[session_id_param],
+        responses={200: response_schema}
+    )
+    @action(detail=False, methods=['get'])
+    def verify(self, request):
+        """Verify a checkout session and return subscription status
+        
+        Provide the session_id as a query parameter in the URL.
+        
+        Example:
+        GET /api/v1/subscription/checkout/verify/?session_id=cs_test_a1b2c3...
+        """
+        # Get session_id from query parameters
+        session_id = request.query_params.get('session_id')
+        
+        if not session_id:
+            return Response(
+                {"error": "session_id is required as a query parameter"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Retrieve the checkout session from Stripe
+            checkout_session = stripe.checkout.Session.retrieve(
+                session_id,
+                expand=['subscription']
+            )
+            
+            # Check if the session belongs to the current user
+            stripe_customer = StripeCustomer.objects.filter(user=request.user).first()
+            if not stripe_customer or stripe_customer.stripe_customer_id != checkout_session.customer:
+                return Response(
+                    {"error": "This checkout session does not belong to you"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Get subscription information
+            subscription_data = None
+            subscription_id = checkout_session.get('subscription')
+            
+            if subscription_id:
+                # Check if we have this subscription in our database
+                subscription = Subscription.objects.filter(
+                    stripe_subscription_id=subscription_id
+                ).first()
+                
+                if subscription:
+                    serializer = SubscriptionSerializer(subscription)
+                    subscription_data = serializer.data
+                else:
+                    # If webhook hasn't processed it yet, get basic info from Stripe
+                    subscription_obj = checkout_session.subscription
+                    subscription_data = {
+                        'status': subscription_obj.status,
+                        'current_period_end': datetime.fromtimestamp(subscription_obj.current_period_end).isoformat(),
+                        'stripe_subscription_id': subscription_obj.id
+                    }
+            
+            # Return the session status and subscription info
+            return Response({
+                'session_status': checkout_session.status,
+                'payment_status': checkout_session.payment_status,
+                'subscription': subscription_data
+            })
+            
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe error verifying checkout: {str(e)}")
+            return Response(
+                {"error": f"Stripe error: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Error verifying checkout: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
             return Response({"id": "schema_generation", "url": "https://example.com/checkout"})
             
         price = self.get_object()
