@@ -89,20 +89,16 @@ class StripeProductViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = StripeProduct.objects.filter(active=True)
     
     def list(self, request, *args, **kwargs):
-        """List products filtered by user's verification level"""
+        """List all active products (no eligibility filtering)"""
         # Check if this is a schema generation request
         if getattr(self, 'swagger_fake_view', False):
             # Return standard response for schema generation
             return super().list(request, *args, **kwargs)
-            
+
         queryset = self.get_queryset()
-        user = request.user
-        
-        # Filter products based on user's verification level
-        eligible_products = [product for product in queryset if is_eligible_for_product(user, product)]
-        serializer = self.get_serializer(eligible_products, many=True)
-        
+        serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
 
 
 class StripePriceViewSet(viewsets.ReadOnlyModelViewSet):
@@ -117,6 +113,35 @@ class StripePriceViewSet(viewsets.ReadOnlyModelViewSet):
             
         return StripePrice.objects.filter(active=True)
     
+    @swagger_auto_schema(
+        method='post',
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'success_url': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='URL to redirect to after successful checkout',
+                    example='https://yourdomain.com/success/'
+                ),
+                'cancel_url': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='URL to redirect to if checkout is canceled',
+                    example='https://yourdomain.com/cancel/'
+                ),
+            },
+            required=[],  # Both are optional, as there are defaults in settings
+        ),
+        responses={
+            200: openapi.Response(
+                description="Stripe Checkout session created",
+                examples={
+                    "application/json": {"id": "cs_test_123", "url": "https://checkout.stripe.com/pay/cs_test_123"}
+                }
+            ),
+            403: 'Not eligible for this product',
+            400: 'Invalid request or Stripe error',
+        }
+    )
     @action(detail=True, methods=['post'])
     def checkout(self, request, pk=None):
         """Create a checkout session for a price"""
