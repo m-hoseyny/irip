@@ -16,13 +16,15 @@ class StripeProductSerializer(serializers.ModelSerializer):
 class StripePriceSerializer(serializers.ModelSerializer):
     """Serializer for StripePrice model"""
     product_name = serializers.CharField(source='product.name', read_only=True)
+    product_description = serializers.CharField(source='product.description', read_only=True)
+    product_verification_level = serializers.CharField(source='product.verification_level', read_only=True)
     formatted_price = serializers.CharField(read_only=True)
     billing_interval = serializers.CharField(source='get_recurring_interval_display', read_only=True)
     
     class Meta:
         model = StripePrice
         fields = [
-            'id', 'product', 'product_name', 'price_amount', 'currency',
+            'id', 'product', 'product_name', 'product_description', 'product_verification_level', 'price_amount', 'currency',
             'formatted_price', 'recurring_interval', 'billing_interval',
             'active', 'created_at', 'updated_at'
         ]

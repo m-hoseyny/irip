@@ -115,6 +115,27 @@ class StripePriceViewSet(viewsets.ReadOnlyModelViewSet):
     
     @swagger_auto_schema(
         method='post',
+        description="""
+        Initiate a Stripe Checkout session for a specific price.
+        
+        This endpoint creates a Stripe Checkout session for the given price ID. The user must be authenticated and eligible for the product. Optionally, you can provide custom URLs for success and cancellation redirects.
+        
+        **Parameters:**
+        - `success_url` (string, optional): URL to redirect to after successful checkout. Defaults to the value in settings if not provided.
+        - `cancel_url` (string, optional): URL to redirect to if the checkout is canceled. Defaults to the value in settings if not provided.
+        
+        **Response:**
+        - `session_id` (string): The Stripe Checkout session ID. Use this with the `/checkout/verify` endpoint to verify payment.
+        - `url` (string): The Stripe Checkout URL to which the user should be redirected to complete payment.
+        
+        **Example:**
+        ```json
+        {
+          "session_id": "cs_test_123",
+          "url": "https://checkout.stripe.com/pay/cs_test_123"
+        }
+        ```
+        """,
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
@@ -144,7 +165,8 @@ class StripePriceViewSet(viewsets.ReadOnlyModelViewSet):
     )
     @action(detail=True, methods=['post'])
     def checkout(self, request, pk=None):
-        """Create a checkout session for a price"""
+        """Create a checkout session for a price        
+        """
         # Check if this is a schema generation request
         if getattr(self, 'swagger_fake_view', False):
             return Response({"session_id": "schema_generation", "url": "https://example.com/checkout"})
