@@ -135,7 +135,7 @@ class StripePriceViewSet(viewsets.ReadOnlyModelViewSet):
             200: openapi.Response(
                 description="Stripe Checkout session created",
                 examples={
-                    "application/json": {"id": "cs_test_123", "url": "https://checkout.stripe.com/pay/cs_test_123"}
+                    "application/json": {"session_id": "cs_test_123", "url": "https://checkout.stripe.com/pay/cs_test_123"}
                 }
             ),
             403: 'Not eligible for this product',
@@ -147,7 +147,7 @@ class StripePriceViewSet(viewsets.ReadOnlyModelViewSet):
         """Create a checkout session for a price"""
         # Check if this is a schema generation request
         if getattr(self, 'swagger_fake_view', False):
-            return Response({"id": "schema_generation", "url": "https://example.com/checkout"})
+            return Response({"session_id": "schema_generation", "url": "https://example.com/checkout"})
             
         price = self.get_object()
         user = request.user
@@ -171,7 +171,7 @@ class StripePriceViewSet(viewsets.ReadOnlyModelViewSet):
                 cancel_url=cancel_url
             )
             
-            return Response({"id": session.id, "url": session.url})
+            return Response({"session_id": session.id, "url": session.url})
             
         except Exception as e:
             logger.error(f"Error creating checkout session: {str(e)}")
@@ -316,7 +316,7 @@ class CheckoutVerificationViewSet(viewsets.ViewSet):
                 cancel_url=cancel_url
             )
             
-            return Response({"id": session.id, "url": session.url})
+            return Response({"session_id": session.id, "url": session.url})
             
         except Exception as e:
             logger.error(f"Error creating checkout session: {str(e)}")
