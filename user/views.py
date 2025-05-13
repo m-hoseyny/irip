@@ -37,7 +37,7 @@ class UserViewSet(viewsets.GenericViewSet,
             return [permissions.AllowAny()]
         elif self.action in ['retrieve', 'update', 'partial_update', 'change_password']:
             return [permissions.IsAuthenticated()]
-        return [permissions.IsAdminUser()]
+        return [permissions.IsAuthenticated()]
     
     def get_queryset(self):
         user = self.request.user
