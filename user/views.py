@@ -68,7 +68,6 @@ class UserViewSet(viewsets.GenericViewSet,
     def me(self, request):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
-    
     def perform_create(self, serializer):
         """Override create to send verification email"""
         import logging
