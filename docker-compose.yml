@@ -11,18 +11,34 @@ services:
       - media_volume:/app/media
     env_file:
       - .env
-  
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.irip-app.rule=Host(`api.irip.online`)"
+      - "traefik.http.routers.irip-app.rule=Host(`api.irip.online`) && !PathPrefix(`/media/`)"
       - "traefik.http.routers.irip-app.entrypoints=websecure"
       - "traefik.http.routers.irip-app.tls.certresolver=myresolver"
       - "traefik.http.services.irip-app.loadbalancer.server.port=8000"
     networks:
       - alltogether
-  
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      
+  media:
+    image: nginx:alpine
+    container_name: irip_media
+    restart: always
+    volumes:
+      - media_volume:/usr/share/nginx/html
+      - ./nginx-media.conf:/etc/nginx/conf.d/default.conf
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.irip-media.rule=Host(`api.irip.online`) && PathPrefix(`/media/`)"
+      - "traefik.http.routers.irip-media.entrypoints=websecure"
+      - "traefik.http.routers.irip-media.tls.certresolver=myresolver"
+      - "traefik.http.middlewares.irip-media-stripprefix.stripprefix.prefixes=/media"
+      - "traefik.http.routers.irip-media.middlewares=irip-media-stripprefix"
+      - "traefik.http.services.irip-media.loadbalancer.server.port=80"
+    networks:
+      - alltogether
 
 
 volumes:
