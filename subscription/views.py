@@ -16,6 +16,7 @@ from drf_yasg import openapi
 
 import stripe
 import json
+import datetime
 
 from .models import StripeProduct, StripePrice, Subscription, StripeCustomer, PaymentReceipt
 from .utils import (
@@ -291,7 +292,7 @@ class CheckoutVerificationViewSet(viewsets.ViewSet):
                     subscription_obj = checkout_session.subscription
                     subscription_data = {
                         'status': subscription_obj.status,
-                        'current_period_end': datetime.fromtimestamp(subscription_obj.current_period_end).isoformat(),
+                        'current_period_end': datetime.datetime.fromtimestamp(subscription_obj.current_period_end).isoformat(),
                         'stripe_subscription_id': subscription_obj.id
                     }
             
