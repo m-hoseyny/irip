@@ -87,7 +87,8 @@ urlpatterns = [
     path('api/v1/file-management/', include('file_management.urls')),
 ]
 
-# Serve media files in development
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Serve media files in development and production
+# In production, this is not efficient and a proper web server should serve these files
+# This is a temporary solution until proper media serving is configured
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 

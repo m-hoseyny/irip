@@ -160,6 +160,15 @@ WHITENOISE_ROOT = STATIC_ROOT
 WHITENOISE_MANIFEST_STRICT = False
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
+
+# Media files
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# Configure WhiteNoise to serve media files in production
+WHITENOISE_MEDIA_ROOT = MEDIA_ROOT
+WHITENOISE_MEDIA_URL = MEDIA_URL
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
@@ -217,9 +226,7 @@ SWAGGER_SETTINGS = {
     ],
 }
 
-# Media files
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+
 
 # CORS settings
 CORS_ORIGIN_ALLOW_ALL = True
