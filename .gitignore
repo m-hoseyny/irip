@@ -72,3 +72,6 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *.cover
+
+# Static files
+staticfiles/

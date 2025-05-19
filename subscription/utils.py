@@ -155,7 +155,7 @@ def handle_checkout_completed(session):
         price = StripePrice.objects.get(id=price_id)
         
         # Create or update the subscription
-        Subscription.objects.update_or_create(
+        db_subscription, created = Subscription.objects.update_or_create(
             stripe_subscription_id=subscription.id,
             defaults={
                 'user': user,
@@ -170,6 +170,22 @@ def handle_checkout_completed(session):
         )
         
         logger.info(f"Subscription created/updated for user {user.email}")
+        
+        # Create VPN account for the subscription if it's active
+        if db_subscription.status in ['active', 'trialing']:
+            # Import here to avoid circular imports
+            from vpn_account.models import VPNAccount
+            
+            # Check if a VPN account already exists for this subscription
+            existing_account = VPNAccount.objects.filter(subscription=db_subscription).first()
+            
+            if not existing_account:
+                # Create a new VPN account
+                vpn_account = VPNAccount.create_account_for_subscription(db_subscription)
+                if vpn_account:
+                    logger.info(f"VPN account created for subscription {db_subscription.id}")
+                else:
+                    logger.error(f"Failed to create VPN account for subscription {db_subscription.id}")
         
     except Exception as e:
         logger.error(f"Error handling checkout completed: {str(e)}")
@@ -192,6 +208,9 @@ def handle_subscription_updated(subscription_object):
             logger.error(f"Subscription not found: {subscription_object.id}")
             return
         
+        # Get the previous status before updating
+        previous_status = subscription.status
+        
         # Update the subscription
         subscription.status = subscription_object.status
         subscription.current_period_start = datetime.fromtimestamp(subscription_object.current_period_start)
@@ -201,6 +220,44 @@ def handle_subscription_updated(subscription_object):
         subscription.save()
         
         logger.info(f"Subscription updated for user {subscription.user.email}")
+        
+        # Handle VPN account status changes based on subscription status changes
+        try:
+            # Import here to avoid circular imports
+            from vpn_account.models import VPNAccount
+            
+            # If subscription was not active but is now active, create a VPN account if needed
+            if previous_status not in ['active', 'trialing'] and subscription.status in ['active', 'trialing']:
+                # Check if a VPN account already exists for this subscription
+                existing_account = VPNAccount.objects.filter(subscription=subscription).first()
+                
+                if not existing_account:
+                    # Create a new VPN account
+                    vpn_account = VPNAccount.create_account_for_subscription(subscription)
+                    if vpn_account:
+                        logger.info(f"VPN account created for reactivated subscription {subscription.id}")
+                    else:
+                        logger.error(f"Failed to create VPN account for reactivated subscription {subscription.id}")
+            
+            # If subscription was active but is now inactive, deactivate any VPN accounts
+            elif previous_status in ['active', 'trialing'] and subscription.status not in ['active', 'trialing']:
+                # Find all VPN accounts associated with this subscription
+                vpn_accounts = VPNAccount.objects.filter(subscription=subscription, status=VPNAccount.STATUS_ACTIVE)
+                
+                for vpn_account in vpn_accounts:
+                    # Call the delete_account method to remove from 3x-ui and update status
+                    success = vpn_account.delete_account()
+                    if success:
+                        logger.info(f"VPN account {vpn_account.id} deactivated for inactive subscription {subscription.id}")
+                    else:
+                        logger.error(f"Failed to deactivate VPN account {vpn_account.id} for inactive subscription {subscription.id}")
+                        
+                    # Even if the API call fails, mark the account as suspended
+                    vpn_account.status = VPNAccount.STATUS_SUSPENDED
+                    vpn_account.save(update_fields=['status', 'updated_at'])
+                    
+        except Exception as e:
+            logger.error(f"Error handling VPN accounts for subscription update {subscription.id}: {str(e)}")
         
     except Exception as e:
         logger.error(f"Error handling subscription updated: {str(e)}")
@@ -229,6 +286,30 @@ def handle_subscription_deleted(subscription_object):
         subscription.save()
         
         logger.info(f"Subscription canceled for user {subscription.user.email}")
+        
+        # Deactivate associated VPN accounts
+        try:
+            # Import here to avoid circular imports
+            from vpn_account.models import VPNAccount
+            
+            # Find all VPN accounts associated with this subscription
+            vpn_accounts = VPNAccount.objects.filter(subscription=subscription)
+            
+            for vpn_account in vpn_accounts:
+                # Call the delete_account method to remove from 3x-ui and update status
+                if vpn_account.status == VPNAccount.STATUS_ACTIVE:
+                    success = vpn_account.delete_account()
+                    if success:
+                        logger.info(f"VPN account {vpn_account.id} deactivated for canceled subscription {subscription.id}")
+                    else:
+                        logger.error(f"Failed to deactivate VPN account {vpn_account.id} for canceled subscription {subscription.id}")
+                        
+                    # Even if the API call fails, mark the account as expired
+                    vpn_account.status = VPNAccount.STATUS_EXPIRED
+                    vpn_account.save(update_fields=['status', 'updated_at'])
+            
+        except Exception as e:
+            logger.error(f"Error deactivating VPN accounts for subscription {subscription.id}: {str(e)}")
         
     except Exception as e:
         logger.error(f"Error handling subscription deleted: {str(e)}")
