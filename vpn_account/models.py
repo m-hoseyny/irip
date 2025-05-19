@@ -1,11 +1,99 @@
 from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
+from django.apps import AppConfig
 import uuid
 import random
 import json
 import requests
+import logging
+import time
 from subscription.models import Subscription
+import base64
+from nacl.public import PrivateKey
+
+logger = logging.getLogger(__name__)
+
+# 3x-ui Panel Configuration
+X_UI_BASE_URL = 'http://116.203.123.232:8080'
+X_UI_PATH_PREFIX = 'mvWEGf9YfJ'
+X_UI_USERNAME = 'admin'
+X_UI_PASSWORD = 'JjGQ99uvrb6rlnZD67jJ'
+
+# Global session for 3x-ui API
+x_ui_session = requests.Session()
+x_ui_session.headers.update({
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-GB,en;q=0.9,fa-IR;q=0.8,fa;q=0.7,en-US;q=0.6',
+    'Connection': 'keep-alive',
+    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+    'Origin': X_UI_BASE_URL,
+    'Referer': f'{X_UI_BASE_URL}/{X_UI_PATH_PREFIX}/panel/inbounds',
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+    'X-Requested-With': 'XMLHttpRequest'
+})
+
+# Login to 3x-ui panel
+def login_to_x_ui():
+    """Login to 3x-ui panel and update session cookies"""
+    try:
+        response = x_ui_session.post(
+            f'{X_UI_BASE_URL}/{X_UI_PATH_PREFIX}/login',
+            data={
+                'username': X_UI_USERNAME,
+                'password': X_UI_PASSWORD
+            }
+        )
+        
+        if response.status_code == 200 and response.json().get('success'):
+            logger.info('Successfully logged in to 3x-ui panel')
+            return True
+        else:
+            logger.error(f'Failed to login to 3x-ui panel: {response.text}')
+            return False
+    except Exception as e:
+        logger.error(f'Error logging in to 3x-ui panel: {e}')
+        return False
+
+# Login on application startup
+login_success = login_to_x_ui()
+if not login_success:
+    logger.warning('Initial login to 3x-ui panel failed. Will retry on API calls.')
+
+# Retry login decorator
+def retry_on_auth_failure(max_retries=3):
+    """Decorator to retry a function if authentication fails"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    result = func(*args, **kwargs)
+                    return result
+                except requests.exceptions.RequestException as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f'Request failed, attempting to re-login: {e}')
+                        login_to_x_ui()
+                        time.sleep(1)  # Wait a bit before retrying
+                    else:
+                        logger.error(f'Max retries reached for {func.__name__}: {e}')
+                        raise
+        return wrapper
+    return decorator
+
+
+
+def wg_public_key_from_private_key(private_key_base64: str) -> str:
+    # Decode the base64-encoded private key
+    private_key_bytes = base64.b64decode(private_key_base64)
+    
+    # Create a PrivateKey object using the bytes
+    private_key = PrivateKey(private_key_bytes)
+    
+    # Derive the public key
+    public_key_bytes = private_key.public_key.encode()
+    
+    # Return the base64-encoded public key
+    return base64.b64encode(public_key_bytes).decode()
 
 
 class VPNAccount(models.Model):
@@ -100,60 +188,70 @@ class VPNAccount(models.Model):
             return None
         
         # Generate random email identifier for the account
-        email_id = f"{uuid.uuid4().hex[:8]}"
+        email_id = f"{subscription.user.email.split('@')[0]}_{uuid.uuid4().hex[:8]}"
         
         # Generate random port
         port = cls.generate_random_port()
         
-        # Create VPN account instance
-        vpn_account = cls(
-            user=subscription.user,
-            subscription=subscription,
-            email=email_id,
-            port=port,
-            status=cls.STATUS_INACTIVE
-        )
-        
-        # Call 3x-ui API to create the WireGuard account
-        success = vpn_account.create_wireguard_account()
-        
-        if success:
-            vpn_account.status = cls.STATUS_ACTIVE
+        try:
+            # First save the VPN account to get a primary key
+            vpn_account = cls(
+                user=subscription.user,
+                subscription=subscription,
+                email=email_id,
+                port=port,
+                status=cls.STATUS_INACTIVE
+            )
             vpn_account.save()
-            return vpn_account
-        
-        return None
+            
+            # Call 3x-ui API to create the WireGuard account
+            success = vpn_account.create_wireguard_account()
+            
+            if success:
+                # The status is already set in create_wireguard_account
+                return vpn_account
+            else:
+                # If the API call fails, delete the account
+                vpn_account.delete()
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error creating VPN account for subscription {subscription.id}: {e}")
+            return None
     
+    @retry_on_auth_failure()
     def create_wireguard_account(self):
         """
-        Create a WireGuard account via 3x-ui API.
+        Create a new WireGuard account in the 3x-ui panel.
         Returns True if successful, False otherwise.
         """
-        # Generate WireGuard keys
-        private_key = self.generate_wireguard_private_key()
-        public_key = self.generate_wireguard_public_key(private_key)
-        server_private_key = self.generate_wireguard_private_key()
-        server_public_key = self.generate_wireguard_public_key(server_private_key)
-        allowed_ip = "10.0.0.2/32"
+        if self.inbound_id:
+            # Account already exists
+            return True
         
-        # Prepare settings JSON
+        # Generate allowed IPs
+        allowed_ips = "10.0.0.2/32"
+        
+        # Prepare WireGuard settings
+        private_key = self.generate_wireguard_key()
+        public_key = self.generate_wireguard_key()
+        
         settings = {
-            "mtu": 1420,
-            "secretKey": server_private_key,
             "peers": [
                 {
                     "privateKey": private_key,
                     "publicKey": public_key,
-                    "allowedIPs": [
-                        allowed_ip
-                    ],
-                    "keepAlive": 0
+                    "allowedIPs": [allowed_ips],
+                    "keepAlive": 25
                 }
             ],
-            "kernelMode": False
+            "disableLocalInterface": False,
+            "secretKey": self.generate_wireguard_key(),
+            # "publicKey": self.generate_wireguard_key(),
+            "mtu": 1420,
         }
         
-        # Prepare sniffing JSON
+        # Prepare sniffing settings
         sniffing = {
             "enabled": True,
             "destOverride": [
@@ -172,124 +270,148 @@ class VPNAccount(models.Model):
             'down': 0,
             'total': 0,
             'remark': f'IRIP-{self.user.id}-{self.email}',
+            'tag': f'IRIP-{self.user.id}-{self.email}',
             'enable': True,
             'expiryTime': 0,
+            'clientStats': [],
             'listen': '',
             'port': self.port,
             'protocol': 'wireguard',
-            'settings': json.dumps(settings),
-            'sniffing': json.dumps(sniffing)
+            'settings': json.dumps(settings, indent=4),
+            'sniffing': json.dumps(sniffing, indent=4)
         }
         
-        # Make API request to 3x-ui
+        # Make API request to 3x-ui using global session
         try:
-            response = requests.post(
-                'http://116.203.123.232:8080/mvWEGf9YfJ/panel/inbound/add',
-                headers={
-                    'Accept': 'application/json, text/plain, */*',
-                    'Accept-Language': 'en-GB,en;q=0.9,fa-IR;q=0.8,fa;q=0.7,en-US;q=0.6',
-                    'Connection': 'keep-alive',
-                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'Origin': 'http://116.203.123.232:8080',
-                    'Referer': 'http://116.203.123.232:8080/mvWEGf9YfJ/panel/inbounds',
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                cookies={
-                    'lang': 'en-US',
-                    '3x-ui': 'MTc0NTE1NzYyMHxEWDhFQVFMX2dBQUJFQUVRQUFCMV80QUFBUVp6ZEhKcGJtY01EQUFLVEU5SFNVNWZWVk5GVWhoNExYVnBMMlJoZEdGaVlYTmxMMjF2WkdWc0xsVnpaWExfZ1FNQkFRUlZjMlZ5QWYtQ0FBRUVBUUpKWkFFRUFBRUlWWE5sY201aGJXVUJEQUFCQ0ZCaGMzTjNiM0prQVF3QUFRdE1iMmRwYmxObFkzSmxkQUVNQUFBQUlfLUNJQUVDQVFWaFpHMXBiZ0VVU21wSFVUazVkWFp5WWpaeWJHNWFSRFkzYWtvQXxDAzGEA1DQjiT0NKaKRy0lEf-XyKLn8m8ivGW6vAHdcw=='
-                },
+            response = x_ui_session.post(
+                f'{X_UI_BASE_URL}/{X_UI_PATH_PREFIX}/panel/inbound/add',
                 data=data
             )
-            
+            logger.info(response.text)
+            print('---------\n{}\n---------'.format(response.text))
             if response.status_code == 200:
                 result = response.json()
                 if result.get('success'):
-                    # Store the inbound ID and other details
+                    # Save the inbound ID
                     self.inbound_id = result.get('obj', {}).get('id')
+                    # Save the WireGuard configuration
+                    inbound = self.get_inbound_from_3xui()
+                    print('---------\n{}\n---------'.format(inbound))
+                    self.config_data = inbound
+                    self.status = self.STATUS_ACTIVE
                     
-                    # Store configuration in config_data JSON field
-                    self.config_data = {
-                        'server_ip': self.server_ip,
-                        'port': self.port,
-                        'private_key': private_key,
-                        'public_key': public_key,
-                        'server_public_key': server_public_key,
-                        'allowed_ip': allowed_ip
-                    }
-                    
-                    # Generate config file
-                    self.generate_wireguard_config()
+                    # Check if this is a new instance or an existing one
+                    if self.pk:
+                        # If it has a primary key, it's an existing instance
+                        self.save(update_fields=['inbound_id', 'config_data', 'status', 'updated_at'])
+                    else:
+                        # If it doesn't have a primary key, it's a new instance
+                        self.save()
                     return True
             
+            logger.error(f"Failed to create WireGuard account: {response.text}")
             return False
         except Exception as e:
-            print(f"Error creating WireGuard account: {e}")
+            logger.error(f"Error creating WireGuard account: {e}")
             return False
+        
+        
+    def get_inbound_from_3xui(self):
+        """
+        Get the inbound from 3x-ui using the inbound ID.
+        """
+        response = x_ui_session.get(
+            f'{X_UI_BASE_URL}/{X_UI_PATH_PREFIX}/panel/api/inbounds/get/{self.inbound_id}'
+        )
+        print('---------\n{}\n---------'.format(response.text))
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('success') and result.get('obj'):
+                return result.get('obj')
+        
+        return None 
     
-    def generate_wireguard_config(self):
-        """Generate WireGuard configuration file content"""
-        if not self.config_data:
-            return
+    def generate_wireguard_key(self):
+        """
+        Generate a WireGuard private or public key.
+        This is a simplified version that generates a random string for testing purposes.
+        In production, you would use the actual WireGuard key generation tools.
+        """
+        # Generate a random 44-character base64 string (similar to WireGuard keys)
+        import base64
+        import os
         
-        private_key = self.config_data.get('private_key', '')
-        allowed_ip = self.config_data.get('allowed_ip', '')
-        server_public_key = self.config_data.get('server_public_key', '')
-        server_ip = self.config_data.get('server_ip', self.server_ip)
-        port = self.config_data.get('port', self.port)
+        # Generate 32 random bytes and encode as base64
+        random_bytes = os.urandom(32)
+        key = base64.b64encode(random_bytes).decode('utf-8')
         
-        config = f"""[Interface]
-PrivateKey = {private_key}
-Address = {allowed_ip}
-DNS = 8.8.8.8, 1.1.1.1
-
-[Peer]
-PublicKey = {server_public_key}
-AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = {server_ip}:{port}
-PersistentKeepalive = 25
-"""
-        self.config_file = config
+        return key
     
     def generate_wireguard_private_key(self):
         """
         Generate a WireGuard private key.
-        In a real implementation, this would use proper cryptographic functions.
-        For this example, we're using a placeholder.
         """
-        # This is a placeholder. In a real implementation, you would use:
-        # wg genkey
-        return f"{uuid.uuid4().hex}+{uuid.uuid4().hex[:8]}="
+        return self.generate_wireguard_key()
     
-    def generate_wireguard_public_key(self, private_key):
+    def generate_wireguard_public_key(self, private_key=None):
         """
         Generate a WireGuard public key from a private key.
-        In a real implementation, this would use proper cryptographic functions.
-        For this example, we're using a placeholder.
+        If no private key is provided, generate a new one.
         """
-        # This is a placeholder. In a real implementation, you would use:
-        # echo <private_key> | wg pubkey
-        return f"{uuid.uuid4().hex}+{uuid.uuid4().hex[:8]}="
+        # In a real implementation, you would derive the public key from the private key
+        # For now, just generate another random key
+        return self.generate_wireguard_key()
     
+    def generate_wireguard_config(self):
+        """
+        Generate a WireGuard configuration file for the client.
+        """
+        if not self.config_data:
+            return None
+        
+        # Extract configuration data
+        print(self.config_data)
+        local_settings = json.loads(self.config_data['settings'])
+        private_key = local_settings['peers'][0]['privateKey']
+        server_public_key = wg_public_key_from_private_key(local_settings['secretKey'])
+        server_ip = self.server_ip
+        port = self.port
+        allowed_ips = self.config_data.get('allowedIPs', '10.0.0.2/32')
+        
+        # Generate config file content
+        config = f"""[Interface]
+        PrivateKey = {private_key}
+        Address = {allowed_ips}
+        DNS = 8.8.8.8, 8.8.4.4
+        MTU = 1420
+
+        [Peer]
+        PublicKey = {server_public_key}
+        AllowedIPs = 0.0.0.0/0, ::/0
+        Endpoint = {server_ip}:{port}
+        PersistentKeepalive = 25"""
+        
+        # Save config to the model
+        # self.config_file = config
+        # self.save(update_fields=['config_file'])
+        
+        return config
+    
+    # This method was removed to avoid duplication with the one defined above
+    
+    @retry_on_auth_failure()
     def update_usage_stats(self):
         """
         Update usage statistics from 3x-ui API.
         """
-        if not self.inbound_id:
+        if not self.inbound_id: 
             return False
         
         try:
-            # Make API request to get inbound details
-            response = requests.get(
-                f'http://116.203.123.232:8080/mvWEGf9YfJ/panel/api/inbounds/get/{self.inbound_id}',
-                headers={
-                    'Accept': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                cookies={
-                    'lang': 'en-US',
-                    '3x-ui': 'MTc0NTE1NzYyMHxEWDhFQVFMX2dBQUJFQUVRQUFCMV80QUFBUVp6ZEhKcGJtY01EQUFLVEU5SFNVNWZWVk5GVWhoNExYVnBMMlJoZEdGaVlYTmxMMjF2WkdWc0xsVnpaWExfZ1FNQkFRUlZjMlZ5QWYtQ0FBRUVBUUpKWkFFRUFBRUlWWE5sY201aGJXVUJEQUFCQ0ZCaGMzTjNiM0prQVF3QUFRdE1iMmRwYmxObFkzSmxkQUVNQUFBQUlfLUNJQUVDQVFWaFpHMXBiZ0VVU21wSFVUazVkWFp5WWpaeWJHNWFSRFkzYWtvQXxDAzGEA1DQjiT0NKaKRy0lEf-XyKLn8m8ivGW6vAHdcw=='
-                }
+            # Make API request to get inbound details using global session
+            response = x_ui_session.get(
+                f'{X_UI_BASE_URL}/{X_UI_PATH_PREFIX}/panel/api/inbounds/get/{self.inbound_id}'
             )
             
             if response.status_code == 200:
@@ -301,11 +423,13 @@ PersistentKeepalive = 25
                     self.save(update_fields=['data_usage_up', 'data_usage_down', 'updated_at'])
                     return True
             
+            logger.error(f"Failed to update usage stats: {response.text}")
             return False
         except Exception as e:
-            print(f"Error updating usage stats: {e}")
+            logger.error(f"Error updating usage stats: {e}")
             return False
     
+    @retry_on_auth_failure()
     def delete_account(self):
         """
         Deactivate the VPN account in 3x-ui by setting an expiration time.
@@ -316,40 +440,22 @@ PersistentKeepalive = 25
         
         try:
             # First, get the current inbound details
-            response_get = requests.get(
-                f'http://116.203.123.232:8080/mvWEGf9YfJ/panel/api/inbounds/get/{self.inbound_id}',
-                headers={
-                    'Accept': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                cookies={
-                    'lang': 'en-US',
-                    '3x-ui': 'MTc0NTE1NzYyMHxEWDhFQVFMX2dBQUJFQUVRQUFCMV80QUFBUVp6ZEhKcGJtY01EQUFLVEU5SFNVNWZWVk5GVWhoNExYVnBMMlJhZEdGaVlYTmxMMjF2WkdWc0xsVnpaWExfZ1FNQkFRUlZjMlZ5QWYtQ0FBRUVBUUpKWkFFRUFBRUlWWE5sY201aGJXVUJEQUFCQ0ZCaGMzTjNiM0prQVF3QUFRdE1iMmRwYmxObFkzSmxkQUVNQUFBQUlfLUNJQUVDQVFWaFpHMXBiZ0VVU21wSFVUazVkWFp5WWpaeWJHNWFSRFkzYWtvQXxDAzGEA1DQjiT0NKaKRy0lEf-XyKLn8m8ivGW6vAHdcw=='
-                }
+            response_get = x_ui_session.get(
+                f'{X_UI_BASE_URL}/{X_UI_PATH_PREFIX}/panel/api/inbounds/get/{self.inbound_id}'
             )
             
             if response_get.status_code != 200 or not response_get.json().get('success'):
-                print(f"Error getting inbound details: {response_get.text}")
+                logger.error(f"Error getting inbound details: {response_get.text}")
                 return False
                 
             inbound_data = response_get.json().get('obj', {})
             
             # Set expiration time to current timestamp (expire immediately)
-            import time
             current_timestamp = int(time.time())
             
             # Make API request to update the inbound with expiration time
-            response = requests.post(
-                'http://116.203.123.232:8080/mvWEGf9YfJ/panel/inbound/update',
-                headers={
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                cookies={
-                    'lang': 'en-US',
-                    '3x-ui': 'MTc0NTE1NzYyMHxEWDhFQVFMX2dBQUJFQUVRQUFCMV80QUFBUVp6ZEhKcGJtY01EQUFLVEU5SFNVNWZWVk5GVWhoNExYVnBMMlJoZEdGaVlYTmxMMjF2WkdWc0xsVnpaWExfZ1FNQkFRUlZjMlZ5QWYtQ0FBRUVBUUpKWkFFRUFBRUlWWE5sY201aGJXVUJEQUFCQ0ZCaGMzTjNiM0prQVF3QUFRdE1iMmRwYmxObFkzSmxkQUVNQUFBQUlfLUNJQUVDQVFWaFpHMXBiZ0VVU21wSFVUazVkWFp5WWpaeWJHNWFSRFkzYWtvQXxDAzGEA1DQjiT0NKaKRy0lEf-XyKLn8m8ivGW6vAHdcw=='
-                },
+            response = x_ui_session.post(
+                f'{X_UI_BASE_URL}/{X_UI_PATH_PREFIX}/panel/inbound/update',
                 data={
                     'id': self.inbound_id,
                     'up': inbound_data.get('up', 0),
@@ -375,29 +481,40 @@ PersistentKeepalive = 25
                     self.save(update_fields=['status', 'updated_at'])
                     return True
             
-            # If updating fails, try the old delete method as fallback
-            print(f"Failed to update expiration time, trying delete as fallback: {response.text}")
-            response_delete = requests.post(
-                'http://116.203.123.232:8080/mvWEGf9YfJ/panel/inbound/del',
-                headers={
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                cookies={
-                    'lang': 'en-US',
-                    '3x-ui': 'MTc0NTE1NzYyMHxEWDhFQVFMX2dBQUJFQUVRQUFCMV80QUFBUVp6ZEhKcGJtY01EQUFLVEU5SFNVNWZWVk5GVWhoNExYVnBMMlJoZEdGaVlYTmxMMjF2WkdWc0xsVnpaWExfZ1FNQkFRUlZjMlZ5QWYtQ0FBRUVBUUpKWkFFRUFBRUlWWE5sY201aGJXVUJEQUFCQ0ZCaGMzTjNiM0prQVF3QUFRdE1iMmRwYmxObFkzSmxkQUVNQUFBQUlfLUNJQUVDQVFWaFpHMXBiZ0VVU21wSFVUazVkWFp5WWpaeWJHNWFSRFkzYWtvQXxDAzGEA1DQjiT0NKaKRy0lEf-XyKLn8m8ivGW6vAHdcw=='
-                },
-                data={'id': self.inbound_id}
-            )
-            
-            if response_delete.status_code == 200 and response_delete.json().get('success'):
-                self.status = self.STATUS_INACTIVE
-                self.inbound_id = None
-                self.save(update_fields=['status', 'inbound_id', 'updated_at'])
-                return True
             
             return False
         except Exception as e:
-            print(f"Error deactivating account: {e}")
+            logger.error(f"Error deactivating account: {e}")
+            return False
+            
+    @retry_on_auth_failure()
+    def remove_account(self):
+        """
+        Completely remove the VPN account from 3x-ui server.
+        This is a destructive operation and should only be used by admins.
+        """
+        if not self.inbound_id:
+            return False
+        
+        try:
+            # Make API request to delete the inbound
+            response = x_ui_session.post(
+                f'{X_UI_BASE_URL}/{X_UI_PATH_PREFIX}/panel/inbound/del/{self.inbound_id}'
+            )
+            
+            logger.info(f"Remove account response: {response.text}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('success'):
+                    # Update the model to reflect the deletion
+                    self.status = self.STATUS_EXPIRED
+                    self.inbound_id = None
+                    self.save(update_fields=['status', 'inbound_id', 'updated_at'])
+                    return True
+            
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error removing account: {e}")
             return False

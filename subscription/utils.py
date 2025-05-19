@@ -77,7 +77,7 @@ def get_or_create_stripe_customer(user):
     
     except Exception as e:
         logger.error(f"Error creating Stripe customer for user {user.email}: {str(e)}")
-        raise
+        raise e
 
 
 def create_checkout_session(user, price_id, success_url, cancel_url):
@@ -124,10 +124,10 @@ def create_checkout_session(user, price_id, success_url, cancel_url):
     
     except stripe.error.StripeError as e:
         logger.error(f"Stripe error creating checkout session: {str(e)}")
-        raise
+        raise e
     except Exception as e:
         logger.error(f"Error creating checkout session: {str(e)}")
-        raise
+        raise e
 
 
 def handle_checkout_completed(session):
@@ -189,6 +189,7 @@ def handle_checkout_completed(session):
         
     except Exception as e:
         logger.error(f"Error handling checkout completed: {str(e)}")
+        raise e
 
 
 def handle_subscription_updated(subscription_object):
@@ -258,9 +259,11 @@ def handle_subscription_updated(subscription_object):
                     
         except Exception as e:
             logger.error(f"Error handling VPN accounts for subscription update {subscription.id}: {str(e)}")
+            raise e
         
     except Exception as e:
         logger.error(f"Error handling subscription updated: {str(e)}")
+        raise e
 
 
 def handle_subscription_deleted(subscription_object):
@@ -310,9 +313,11 @@ def handle_subscription_deleted(subscription_object):
             
         except Exception as e:
             logger.error(f"Error deactivating VPN accounts for subscription {subscription.id}: {str(e)}")
+            raise e
         
     except Exception as e:
         logger.error(f"Error handling subscription deleted: {str(e)}")
+        raise e
 
 
 def handle_invoice_event(invoice):
@@ -367,6 +372,7 @@ def handle_invoice_event(invoice):
             
     except Exception as e:
         logger.error(f"Error handling invoice event: {str(e)}")
+        raise e
 
 
 def handle_invoice_paid(invoice):
@@ -402,6 +408,7 @@ def handle_invoice_paid(invoice):
         
     except Exception as e:
         logger.error(f"Error handling invoice paid event: {str(e)}")
+        raise e
 
 
 def handle_invoice_payment_failed(invoice):
@@ -434,6 +441,7 @@ def handle_invoice_payment_failed(invoice):
         
     except Exception as e:
         logger.error(f"Error handling invoice payment failed event: {str(e)}")
+        raise e
 
 
 def sync_stripe_products():
@@ -490,7 +498,7 @@ def sync_stripe_products():
         
     except Exception as e:
         logger.error(f"Error syncing Stripe products: {str(e)}")
-        return False, str(e)
+        raise e
 
 
 def cancel_subscription(subscription_id):
@@ -522,10 +530,10 @@ def cancel_subscription(subscription_id):
         
     except Subscription.DoesNotExist:
         logger.error(f"Subscription not found: {subscription_id}")
-        return False, "Subscription not found"
+        raise e
     except stripe.error.StripeError as e:
         logger.error(f"Stripe error canceling subscription: {str(e)}")
-        return False, f"Stripe error: {str(e)}"
+        raise e
     except Exception as e:
         logger.error(f"Error canceling subscription: {str(e)}")
-        return False, f"Error: {str(e)}"
+        raise e

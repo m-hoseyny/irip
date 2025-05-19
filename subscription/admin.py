@@ -58,7 +58,7 @@ class SubscriptionAdmin(admin.ModelAdmin):
         'status', 'current_period_start', 'current_period_end', 
         'cancel_at_period_end', 'canceled_at', 'created_at', 'updated_at'
     )
-    actions = ['cancel_subscriptions']
+    actions = ['cancel_subscriptions', 'recreate_vpn_accounts']
     fieldsets = (
         (None, {
             'fields': ('user', 'price', 'status')
@@ -98,6 +98,50 @@ class SubscriptionAdmin(admin.ModelAdmin):
             self.message_user(request, "No active subscriptions were selected for cancellation.", level='WARNING')
     
     cancel_subscriptions.short_description = _('Cancel selected subscriptions at period end')
+    
+    def recreate_vpn_accounts(self, request, queryset):
+        """Admin action to recreate VPN accounts for subscriptions that don't have one"""
+        from vpn_account.models import VPNAccount
+        
+        created_count = 0
+        error_count = 0
+        skipped_count = 0
+        
+        for subscription in queryset:
+            # Only process active or trialing subscriptions
+            if subscription.status not in ['active', 'trialing']:
+                skipped_count += 1
+                continue
+                
+            # Check if the subscription already has a VPN account
+            existing_accounts = VPNAccount.objects.filter(subscription=subscription).count()
+            if existing_accounts > 0:
+                skipped_count += 1
+                continue
+                
+            # Create a new VPN account for this subscription
+            try:
+                vpn_account = VPNAccount.create_account_for_subscription(subscription)
+                if vpn_account:
+                    created_count += 1
+                else:
+                    error_count += 1
+            except Exception as e:
+                self.message_user(
+                    request, 
+                    _(f'Error creating VPN account for subscription {subscription.id}: {str(e)}'),
+                    level='error'
+                )
+                error_count += 1
+        
+        if created_count > 0:
+            self.message_user(request, _(f'{created_count} VPN account(s) successfully created.'))
+        if skipped_count > 0:
+            self.message_user(request, _(f'{skipped_count} subscription(s) skipped (inactive or already have VPN accounts).'), level='warning')
+        if error_count > 0:
+            self.message_user(request, _(f'Failed to create {error_count} VPN account(s).'), level='error')
+    
+    recreate_vpn_accounts.short_description = _('Recreate missing VPN accounts')
     
     def price_info(self, obj):
         if not obj.price:

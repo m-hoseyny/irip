@@ -22,7 +22,7 @@ class VPNAccountViewSet(viewsets.ModelViewSet):
         """Return VPN accounts for the authenticated user"""
         # Ensure user is authenticated before filtering
         if not self.request.user.is_authenticated:
-            logger.warning(f"Unauthenticated user attempting to access VPNAccountViewSet")
+            # logger.warning(f"Unauthenticated user attempting to access VPNAccountViewSet")
             return VPNAccount.objects.none()
         
         try:

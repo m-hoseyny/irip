@@ -1,5 +1,7 @@
 from rest_framework import serializers
 from .models import StripeProduct, StripePrice, Subscription, PaymentReceipt
+from vpn_account.models import VPNAccount
+from vpn_account.serializers import VPNAccountSerializer
 
 
 class StripeProductSerializer(serializers.ModelSerializer):
@@ -31,6 +33,9 @@ class StripePriceSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+# Using the VPNAccountSerializer from vpn_account app
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Serializer for Subscription model"""
     product_name = serializers.CharField(source='price.product.name', read_only=True)
@@ -38,6 +43,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     billing_interval = serializers.CharField(source='price.get_recurring_interval_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     days_remaining = serializers.IntegerField(source='days_until_expiration', read_only=True)
+    vpn_accounts = VPNAccountSerializer(many=True, read_only=True)
     
     class Meta:
         model = Subscription
@@ -46,7 +52,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             'billing_interval', 'status', 'status_display', 'days_remaining',
             'current_period_start', 'current_period_end',
             'cancel_at_period_end', 'canceled_at',
-            'created_at', 'updated_at'
+            'created_at', 'updated_at', 'vpn_accounts'
         ]
         read_only_fields = fields
 
