@@ -308,6 +308,9 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = ['email', 'profile']
 # Specify exact redirect URI to match Google Console configuration
 SOCIAL_AUTH_GOOGLE_OAUTH2_REDIRECT_URI = os.environ.get('GOOGLE_REDIRECT_URI', 'https://api.irip.online/auth/complete/google-oauth2/')
 
+LOGIN_URL = '/api/v1/user/oauth/login/'
+LOGIN_REDIRECT_URL = '/api/v1/user/oauth/complete/'
+
 # Social Auth Pipeline
 SOCIAL_AUTH_PIPELINE = (
     'social_core.pipeline.social_auth.social_details',
