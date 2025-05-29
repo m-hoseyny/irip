@@ -1,10 +1,15 @@
 from rest_framework import viewsets, permissions, status, generics, mixins
 from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, login
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
+from rest_framework_simplejwt.tokens import RefreshToken
+from social_django.utils import psa
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from .serializers import (
@@ -219,15 +224,15 @@ def password_reset_request(request):
                 
                 # Return success anyway to avoid email enumeration
                 return Response(
-                    {"detail": "Password reset email sent if the email exists in our system."},
-                    status=status.HTTP_200_OK
+                    {"detail": "Failed to send password reset email."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
                 
         except User.DoesNotExist:
             # Return success anyway to avoid email enumeration
             return Response(
-                {"detail": "Password reset email sent if the email exists in our system."},
-                status=status.HTTP_200_OK
+                {"detail": "User not found."},
+                status=status.HTTP_404_NOT_FOUND
             )
     
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -322,3 +327,105 @@ def password_reset_confirm(request, uidb64, token):
             {"detail": "Invalid password reset link."},
             status=status.HTTP_400_BAD_REQUEST
         )
+
+
+# Helper function to get JWT tokens for a user
+def get_tokens_for_user(user):
+    refresh = RefreshToken.for_user(user)
+    return {
+        'refresh': str(refresh),
+        'access': str(refresh.access_token),
+    }
+
+
+@swagger_auto_schema(
+    method='get',
+    operation_description="Initiates Google OAuth authentication flow",
+    responses={
+        status.HTTP_302_FOUND: openapi.Response(
+            description="Redirects to Google authentication page"
+        )
+    }
+)
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def google_login(request):
+    """Initiates Google OAuth authentication flow"""
+    redirect_uri = request.build_absolute_uri('/auth/complete/google-oauth2/')
+    return redirect(f'/auth/login/google-oauth2/?redirect_uri={redirect_uri}')
+
+
+@swagger_auto_schema(
+    method='get',
+    operation_description="OAuth callback handler that generates JWT tokens",
+    responses={
+        status.HTTP_200_OK: openapi.Response(
+            description="Returns JWT tokens for authenticated user",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'access_token': openapi.Schema(type=openapi.TYPE_STRING),
+                    'refresh_token': openapi.Schema(type=openapi.TYPE_STRING),
+                    'user': openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            'id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                            'username': openapi.Schema(type=openapi.TYPE_STRING),
+                            'email': openapi.Schema(type=openapi.TYPE_STRING),
+                            'is_verified': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        }
+                    )
+                }
+            )
+        ),
+        status.HTTP_400_BAD_REQUEST: openapi.Response(
+            description="Authentication failed",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'error': openapi.Schema(type=openapi.TYPE_STRING)
+                }
+            )
+        )
+    }
+)
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def oauth_complete(request):
+    """OAuth callback handler that generates JWT tokens"""
+    # Get the authenticated user from the session
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "Authentication failed"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Generate JWT tokens for the authenticated user
+    tokens = get_tokens_for_user(request.user)
+    
+    # Return user info and tokens
+    user_data = {
+        'id': request.user.id,
+        'username': request.user.username,
+        'email': request.user.email,
+        'is_verified': getattr(request.user, 'is_verified', True)  # Default to True for social auth
+    }
+    
+    # Set the user as verified since they authenticated via OAuth
+    if hasattr(request.user, 'is_verified') and not request.user.is_verified:
+        request.user.is_verified = True
+        request.user.save()
+    
+    response_data = {
+        'access_token': tokens['access'],
+        'refresh_token': tokens['refresh'],
+        'user': user_data
+    }
+    
+    # Return the response as JSON
+    return JsonResponse(response_data)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def oauth_error(request):
+    """Handle OAuth authentication errors"""
+    error = request.GET.get('error', 'Unknown error')
+    return JsonResponse({"error": f"Authentication failed: {error}"}, status=status.HTTP_400_BAD_REQUEST)

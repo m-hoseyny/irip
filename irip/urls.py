@@ -80,6 +80,9 @@ urlpatterns = [
     path('api/docs/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('api/redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     
+    # Social auth URLs
+    path('auth/', include('social_django.urls', namespace='social')),
+    
     # API endpoints
     path('api/v1/user/', include('user.urls')),
     path('api/v1/subscription/', include('subscription.urls')),
