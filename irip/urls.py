@@ -85,6 +85,7 @@ urlpatterns = [
     path('api/v1/subscription/', include('subscription.urls')),
     path('api/v1/vpn-account/', include('vpn_account.urls')),
     path('api/v1/file-management/', include('file_management.urls')),
+    path('api/v1/crm/', include('crm.urls')),
 ]
 
 # Serve media files in development and production
