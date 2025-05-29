@@ -301,9 +301,12 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 # Google OAuth2 settings
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get('GOOGLE_OAUTH2_CLIENT_ID', '')
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get('GOOGLE_OAUTH2_CLIENT_SECRET', '')
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get('GOOGLE_CLIENT_ID', '')
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
 SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = ['email', 'profile']
+
+# Specify exact redirect URI to match Google Console configuration
+SOCIAL_AUTH_GOOGLE_OAUTH2_REDIRECT_URI = os.environ.get('GOOGLE_REDIRECT_URI', 'http://localhost:8000/auth/complete/google-oauth2/')
 
 # Social Auth Pipeline
 SOCIAL_AUTH_PIPELINE = (
@@ -322,6 +325,12 @@ SOCIAL_AUTH_PIPELINE = (
 # Social Auth Login Redirect
 SOCIAL_AUTH_LOGIN_REDIRECT_URL = '/api/v1/user/oauth/complete/'
 SOCIAL_AUTH_LOGIN_ERROR_URL = '/api/v1/user/oauth/error/'
+
+# Use the same URL for both login and callback
+SOCIAL_AUTH_GOOGLE_OAUTH2_AUTH_EXTRA_ARGUMENTS = {'access_type': 'offline'}
+
+# Specify allowed redirect hosts for security
+SOCIAL_AUTH_ALLOWED_REDIRECT_HOSTS = ['localhost', '127.0.0.1']
 
 # JWT Integration with Social Auth
 SOCIAL_AUTH_JWT_ENABLED = True

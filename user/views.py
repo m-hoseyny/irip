@@ -351,8 +351,9 @@ def get_tokens_for_user(user):
 @permission_classes([permissions.AllowAny])
 def google_login(request):
     """Initiates Google OAuth authentication flow"""
-    redirect_uri = request.build_absolute_uri('/auth/complete/google-oauth2/')
-    return redirect(f'/auth/login/google-oauth2/?redirect_uri={redirect_uri}')
+    # Use the exact redirect URI configured in Google Console
+    # Don't override the redirect_uri parameter as it's already configured in settings
+    return redirect('/auth/login/google-oauth2/')
 
 
 @swagger_auto_schema(
@@ -393,9 +394,15 @@ def google_login(request):
 @permission_classes([permissions.AllowAny])
 def oauth_complete(request):
     """OAuth callback handler that generates JWT tokens"""
+    # Log the request for debugging
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"OAuth complete called. User authenticated: {request.user.is_authenticated if hasattr(request, 'user') else 'No user'}") 
+    
     # Get the authenticated user from the session
     if not request.user.is_authenticated:
-        return JsonResponse({"error": "Authentication failed"}, status=status.HTTP_400_BAD_REQUEST)
+        logger.error("OAuth callback received but no authenticated user found")
+        return JsonResponse({"error": "Authentication failed. Please try again."}, status=status.HTTP_400_BAD_REQUEST)
     
     # Generate JWT tokens for the authenticated user
     tokens = get_tokens_for_user(request.user)
@@ -412,12 +419,15 @@ def oauth_complete(request):
     if hasattr(request.user, 'is_verified') and not request.user.is_verified:
         request.user.is_verified = True
         request.user.save()
+        logger.info(f"User {request.user.username} marked as verified via OAuth")
     
     response_data = {
         'access_token': tokens['access'],
         'refresh_token': tokens['refresh'],
         'user': user_data
     }
+    
+    logger.info(f"OAuth authentication successful for user {request.user.username}")
     
     # Return the response as JSON
     return JsonResponse(response_data)
