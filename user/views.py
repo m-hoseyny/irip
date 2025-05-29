@@ -5,12 +5,15 @@ from django.contrib.auth import get_user_model
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from django.shortcuts import get_object_or_404
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from .serializers import (
     UserSerializer, UserCreateSerializer, 
-    UserUpdateSerializer, PasswordChangeSerializer
+    UserUpdateSerializer, PasswordChangeSerializer,
+    PasswordResetRequestSerializer, PasswordResetConfirmSerializer
 )
-from .tokens import email_verification_token
-from .utils import send_verification_email
+from .tokens import email_verification_token, password_reset_token
+from .utils import send_verification_email, send_password_reset_email
 
 User = get_user_model()
 
@@ -150,5 +153,172 @@ def verify_email(request, uidb64, token):
     except (TypeError, ValueError, OverflowError, User.DoesNotExist):
         return Response(
             {"detail": "Invalid verification link."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+@swagger_auto_schema(
+    method='post',
+    request_body=PasswordResetRequestSerializer,
+    responses={
+        status.HTTP_200_OK: openapi.Response(
+            description="Password reset email sent if the email exists in the system",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'detail': openapi.Schema(
+                        type=openapi.TYPE_STRING,
+                        example="Password reset email sent if the email exists in our system."
+                    )
+                }
+            )
+        ),
+        status.HTTP_400_BAD_REQUEST: openapi.Response(
+            description="Invalid input",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'email': openapi.Schema(
+                        type=openapi.TYPE_ARRAY,
+                        items=openapi.Schema(type=openapi.TYPE_STRING),
+                        example=["Enter a valid email address."]
+                    )
+                }
+            )
+        )
+    },
+    operation_description="Send a password reset link to the email address if it exists in the system."
+)
+@api_view(['POST'])
+@permission_classes([permissions.AllowAny])
+def password_reset_request(request):
+    """Send a password reset link to the email address if it exists in the system."""
+    
+    serializer = PasswordResetRequestSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        email = serializer.validated_data['email']
+        
+        # Find user by email
+        try:
+            user = User.objects.get(email=email)
+            
+            # Send password reset email
+            success, message = send_password_reset_email(user, request)
+            
+            if success:
+                return Response(
+                    {"detail": "Password reset email sent if the email exists in our system."},
+                    status=status.HTTP_200_OK
+                )
+            else:
+                # Log the error but don't expose it to the user for security
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to send password reset email: {message}")
+                
+                # Return success anyway to avoid email enumeration
+                return Response(
+                    {"detail": "Password reset email sent if the email exists in our system."},
+                    status=status.HTTP_200_OK
+                )
+                
+        except User.DoesNotExist:
+            # Return success anyway to avoid email enumeration
+            return Response(
+                {"detail": "Password reset email sent if the email exists in our system."},
+                status=status.HTTP_200_OK
+            )
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@swagger_auto_schema(
+    method='post',
+    request_body=PasswordResetConfirmSerializer,
+    manual_parameters=[
+        openapi.Parameter(
+            name='uidb64',
+            in_=openapi.IN_PATH,
+            description='Base64 encoded user ID',
+            type=openapi.TYPE_STRING,
+            required=True
+        ),
+        openapi.Parameter(
+            name='token',
+            in_=openapi.IN_PATH,
+            description='Password reset token',
+            type=openapi.TYPE_STRING,
+            required=True
+        ),
+    ],
+    responses={
+        status.HTTP_200_OK: openapi.Response(
+            description="Password reset successful",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'detail': openapi.Schema(
+                        type=openapi.TYPE_STRING,
+                        example="Password has been reset successfully."
+                    )
+                }
+            )
+        ),
+        status.HTTP_400_BAD_REQUEST: openapi.Response(
+            description="Invalid input or token",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'detail': openapi.Schema(
+                        type=openapi.TYPE_STRING,
+                        example="Invalid or expired password reset link."
+                    ),
+                    'new_password': openapi.Schema(
+                        type=openapi.TYPE_ARRAY,
+                        items=openapi.Schema(type=openapi.TYPE_STRING),
+                        example=["Password fields didn't match."]
+                    )
+                }
+            )
+        )
+    },
+    operation_description="Validates the reset token and sets a new password for the user account."
+)
+@api_view(['POST'])
+@permission_classes([permissions.AllowAny])
+def password_reset_confirm(request, uidb64, token):
+    """Validates the reset token and sets a new password for the user account."""
+    
+    try:
+        # Decode user ID
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        user = get_object_or_404(User, pk=uid)
+        
+        # Check if token is valid
+        if not password_reset_token.check_token(user, token):
+            return Response(
+                {"detail": "Invalid or expired password reset link."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate new password
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            # Set new password
+            user.set_password(serializer.validated_data['new_password'])
+            user.save()
+            
+            return Response(
+                {"detail": "Password has been reset successfully."},
+                status=status.HTTP_200_OK
+            )
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        return Response(
+            {"detail": "Invalid password reset link."},
             status=status.HTTP_400_BAD_REQUEST
         )

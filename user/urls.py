@@ -5,7 +5,7 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
     TokenVerifyView,
 )
-from .views import UserViewSet, verify_email
+from .views import UserViewSet, verify_email, password_reset_request, password_reset_confirm
 
 router = DefaultRouter()
 router.register(r'', UserViewSet)
@@ -18,6 +18,10 @@ urlpatterns = [
     
     # Email verification endpoint
     path('verify-email/<str:uidb64>/<str:token>/', verify_email, name='verify_email'),
+    
+    # Password reset endpoints
+    path('reset-password/', password_reset_request, name='password_reset_request'),
+    path('reset-password-confirm/<str:uidb64>/<str:token>/', password_reset_confirm, name='password_reset_confirm'),
     
     # User API endpoints
     path('', include(router.urls)),

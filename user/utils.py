@@ -3,7 +3,7 @@ from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from django.conf import settings
-from .tokens import email_verification_token
+from .tokens import email_verification_token, password_reset_token
 
 
 import logging
@@ -78,6 +78,77 @@ def send_verification_email(user, request=None):
     
     except Exception as e:
         error_msg = f"Unexpected error sending email: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        return False, error_msg
+
+
+def send_password_reset_email(user, request=None):
+    """
+    Send a password reset link to the user.
+    Returns a tuple (success, message) where success is a boolean and message contains details.
+    """
+    try:
+        # Log email settings for debugging
+        logger.info(f"Email settings: Backend={settings.EMAIL_BACKEND}, Host={settings.EMAIL_HOST}, Port={settings.EMAIL_PORT}")
+        logger.info(f"Sending password reset email to {user.email}")
+        
+        # Create password reset token
+        token = password_reset_token.make_token(user)
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        
+        # Build reset URL
+        domain = request.get_host() if request else settings.SITE_DOMAIN
+        protocol = 'https' if request and request.is_secure() else 'http'
+        reset_url = f"{protocol}://{domain}/api/v1/user/reset-password-confirm/{uid}/{token}/"
+        
+        logger.info(f"Password reset URL: {reset_url}")
+        
+        # Prepare email content
+        subject = "Reset your password"
+        email_template = """
+        Hello {name},
+        
+        You requested to reset your password for your IRIP VPN account. Please click the link below to reset your password:
+        
+        {reset_url}
+        
+        This link will expire in 24 hours.
+        
+        If you did not request a password reset, please ignore this email.
+        
+        Best regards,
+        The IRIP Team
+        """.format(
+            name=user.get_full_name() or user.username,
+            reset_url=reset_url
+        )
+        
+        # Send email
+        email = EmailMessage(
+            subject=subject,
+            body=email_template,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[user.email]
+        )
+        
+        status = email.send(fail_silently=False)
+        
+        if status:
+            logger.info(f"Successfully sent password reset email to {user.email}")
+            return True, f"Password reset email sent to {user.email}"
+        else:
+            logger.error(f"Failed to send password reset email to {user.email}")
+            return False, f"Failed to send email. Email server returned status: {status}"
+    
+    except SMTPException as e:
+        error_msg = f"SMTP Error: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        return False, error_msg
+    
+    except Exception as e:
+        error_msg = f"Unexpected error sending password reset email: {str(e)}"
         logger.error(error_msg)
         logger.error(traceback.format_exc())
         return False, error_msg
